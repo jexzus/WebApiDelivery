@@ -24,8 +24,23 @@ namespace WebApiDelivery.Models
 
         public string? Observaciones { get; set; }
 
+        public string EstadoPago { get; set; } = "pendiente";
+
+        public string? MpPaymentId { get; set; }
+
+        public string? MpPreferenceId { get; set; }
+
+        public string? MpStatusDetail { get; set; }
+
+        public int? IdRepartidor { get; set; }
+
+        public string? ModoEntrega { get; set; }
+
         [ForeignKey("IdCliente")]
         public Cliente? IdClienteNavigation { get; set; }
+
+        [ForeignKey("IdRepartidor")]
+        public Repartidor? RepartidorNavigation { get; set; }
 
         public List<DetallePedido> DetallePedidos { get; set; } = new();
     }

@@ -16,5 +16,9 @@ namespace WebApiDelivery.Models
         public decimal Precio { get; set; }
 
         public string? Imagen { get; set; }
+
+        [NotMapped]
+        public string? ImageUrl { get; set; }
+
     }
 }

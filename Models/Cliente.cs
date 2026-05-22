@@ -4,7 +4,7 @@ using webapiDelivery.Models;
 
 namespace WebApiDelivery.Models
 {
-    [Table("Cliente")] // 👈 IMPORTANTE
+    [Table("Cliente")] 
     public class Cliente
     {
         [Key]
@@ -17,6 +17,8 @@ namespace WebApiDelivery.Models
         public string NumTelefono { get; set; } = string.Empty;
 
         public string Domicilio { get; set; } = string.Empty;
+
+        public string Email { get; set; } = string.Empty;
 
         public int IdUsuario { get; set; }
 

@@ -1,6 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using WebApiDelivery.Data;
+using WebApiDelivery.Hubs;
 using WebApiDelivery.Models;
 
 namespace WebApiDelivery.Controllers
@@ -10,11 +13,13 @@ namespace WebApiDelivery.Controllers
     public class ClienteController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private static Dictionary<int, List<DetallePedido>> _carritos = new(); // clave: idUsuario
+        private readonly IHubContext<DeliveryHub> _hub;
+        private static readonly ConcurrentDictionary<int, List<DetallePedido>> _carritos = new();
 
-        public ClienteController(AppDbContext context)
+        public ClienteController(AppDbContext context, IHubContext<DeliveryHub> hub)
         {
             _context = context;
+            _hub = hub;
         }
 
         // 1. GET: api/cliente/catalogo
@@ -32,56 +37,56 @@ namespace WebApiDelivery.Controllers
             var producto = _context.Productos.FirstOrDefault(p => p.IdProducto == request.IdProducto);
             if (producto == null) return NotFound("Producto no encontrado");
 
-            if (!_carritos.ContainsKey(request.IdUsuario))
-                _carritos[request.IdUsuario] = new List<DetallePedido>();
+            var carrito = _carritos.GetOrAdd(request.IdUsuario, _ => new List<DetallePedido>());
 
-            var carrito = _carritos[request.IdUsuario];
-            var existente = carrito.FirstOrDefault(p => p.IdProducto == request.IdProducto);
+            lock (carrito)
+            {
+                var existente = carrito.FirstOrDefault(p => p.IdProducto == request.IdProducto);
+                if (existente != null)
+                    existente.Cantidad += request.Cantidad;
+                else
+                    carrito.Add(new DetallePedido
+                    {
+                        IdProducto = request.IdProducto,
+                        Cantidad = request.Cantidad,
+                        PrecioUnitario = producto.Precio,
+                        IdProductoNavigation = producto
+                    });
 
-            if (existente != null)
-                existente.Cantidad += request.Cantidad;
-            else
-                carrito.Add(new DetallePedido
-                {
-                    IdProducto = request.IdProducto,
-                    Cantidad = request.Cantidad,
-                    PrecioUnitario = producto.Precio,
-                    IdProductoNavigation = producto
-                });
-
-            return Ok(carrito);
+                return Ok(carrito.ToList());
+            }
         }
 
         // 3. POST: api/cliente/carrito/eliminar
         [HttpPost("carrito/eliminar")]
         public IActionResult EliminarDelCarrito([FromBody] EliminarCarritoRequest request)
         {
-            if (!_carritos.ContainsKey(request.IdUsuario)) return BadRequest("Carrito vacío");
+            if (!_carritos.TryGetValue(request.IdUsuario, out var carrito))
+                return BadRequest("Carrito vacío");
 
-            var carrito = _carritos[request.IdUsuario];
-            var index = carrito.FindIndex(p => p.IdProducto == request.IdProducto);
-
-            if (index >= 0)
-                carrito.RemoveAt(index);
-
-            return Ok(carrito);
+            lock (carrito)
+            {
+                var index = carrito.FindIndex(p => p.IdProducto == request.IdProducto);
+                if (index >= 0) carrito.RemoveAt(index);
+                return Ok(carrito.ToList());
+            }
         }
 
         // 4. GET: api/cliente/carrito?idUsuario=5
         [HttpGet("carrito")]
         public IActionResult VerCarrito([FromQuery] int idUsuario)
         {
-            if (!_carritos.ContainsKey(idUsuario))
+            if (!_carritos.TryGetValue(idUsuario, out var carrito))
                 return Ok(new List<DetallePedido>());
 
-            return Ok(_carritos[idUsuario]);
+            lock (carrito) { return Ok(carrito.ToList()); }
         }
 
         // 5. POST: api/cliente/confirmar-pedido
         [HttpPost("confirmar-pedido")]
         public async Task<IActionResult> ConfirmarPedido([FromBody] ConfirmarPedidoRequest request)
         {
-            if (!_carritos.ContainsKey(request.IdUsuario))
+            if (!_carritos.TryGetValue(request.IdUsuario, out var carrito))
                 return BadRequest("Carrito vacío");
 
             var usuario = await _context.Usuarios.FindAsync(request.IdUsuario);
@@ -90,8 +95,10 @@ namespace WebApiDelivery.Controllers
             var cliente = await _context.Clientes.FirstOrDefaultAsync(c => c.IdUsuario == request.IdUsuario);
             if (cliente == null) return NotFound("Cliente no encontrado");
 
-            var carrito = _carritos[request.IdUsuario];
-            var total = carrito.Sum(c => c.Cantidad * c.PrecioUnitario);
+            List<DetallePedido> snapshot;
+            lock (carrito) { snapshot = carrito.ToList(); }
+
+            var total = snapshot.Sum(c => c.Cantidad * c.PrecioUnitario);
 
             var pedido = new Pedido
             {
@@ -99,13 +106,14 @@ namespace WebApiDelivery.Controllers
                 FechaPedido = DateTime.Now,
                 EstadoPedido = "Pendiente",
                 Observaciones = request.Observaciones,
+                ModoEntrega = request.ModoEntrega,
                 MontoTotal = total
             };
 
             _context.Pedidos.Add(pedido);
             await _context.SaveChangesAsync();
 
-            foreach (var item in carrito)
+            foreach (var item in snapshot)
             {
                 _context.DetallesPedido.Add(new DetallePedido
                 {
@@ -117,12 +125,72 @@ namespace WebApiDelivery.Controllers
             }
 
             await _context.SaveChangesAsync();
-            _carritos.Remove(request.IdUsuario);
+            _carritos.TryRemove(request.IdUsuario, out _);
+
+            try
+            {
+                await _hub.Clients.Group("Admins").SendAsync("EstadoCambiadoGlobal", new
+                {
+                    numPedido = pedido.NumPedido,
+                    nuevoEstado = "Pendiente",
+                    estadoAnterior = "",
+                    modoEntrega = pedido.ModoEntrega ?? "",
+                    idRepartidor = (int?)null,
+                    idCliente = pedido.IdCliente
+                });
+            }
+            catch { /* SignalR no bloquea la respuesta */ }
 
             return Ok(new { message = "Pedido confirmado exitosamente." });
         }
 
-        // 6. GET: api/cliente/estado-pedido/5
+        // 6. POST: api/cliente/cancelar-pedido
+        [HttpPost("cancelar-pedido")]
+        public async Task<IActionResult> CancelarPedido([FromBody] CancelarPedidoClienteRequest request)
+        {
+            try
+            {
+                var cliente = await _context.Clientes.FirstOrDefaultAsync(c => c.IdUsuario == request.IdUsuario);
+                if (cliente == null) return NotFound("Cliente no encontrado.");
+
+                var pedido = await _context.Pedidos.FirstOrDefaultAsync(p => p.NumPedido == request.NumPedido && p.IdCliente == cliente.IdCliente);
+                if (pedido == null) return NotFound("Pedido no encontrado.");
+
+                if (pedido.EstadoPedido != "Pendiente")
+                    return BadRequest($"El pedido está en '{pedido.EstadoPedido}' y ya no puede cancelarse.");
+
+                pedido.EstadoPedido = "Cancelado";
+                await _context.SaveChangesAsync();
+
+                try
+                {
+                    await _hub.Clients.All.SendAsync("EstadoCambiadoGlobal", new
+                    {
+                        numPedido = pedido.NumPedido,
+                        nuevoEstado = "Cancelado",
+                        estadoAnterior = "Pendiente",
+                        modoEntrega = pedido.ModoEntrega ?? "",
+                        idRepartidor = (int?)null,
+                        idCliente = pedido.IdCliente
+                    });
+                    await _hub.Clients.Group($"Cliente_{pedido.IdCliente}").SendAsync("MiPedidoActualizado", new
+                    {
+                        numPedido = pedido.NumPedido,
+                        nuevoEstado = "Cancelado",
+                        modoEntrega = pedido.ModoEntrega ?? ""
+                    });
+                }
+                catch { /* SignalR no bloquea la respuesta */ }
+
+                return Ok(new { message = "Pedido cancelado." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error interno: {ex.Message}");
+            }
+        }
+
+        // 7. GET: api/cliente/estado-pedido/5
         [HttpGet("estado-pedido/{idUsuario}")]
         public async Task<IActionResult> EstadoPedido(int idUsuario)
         {
@@ -159,5 +227,12 @@ namespace WebApiDelivery.Controllers
     {
         public int IdUsuario { get; set; }
         public string Observaciones { get; set; } = string.Empty;
+        public string? ModoEntrega { get; set; }
+    }
+
+    public class CancelarPedidoClienteRequest
+    {
+        public int NumPedido { get; set; }
+        public int IdUsuario { get; set; }
     }
 }

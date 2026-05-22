@@ -1,67 +1,128 @@
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using System.Text.Json.Serialization;
 using WebApiDelivery.Data;
+using WebApiDelivery.Hubs;
+using WebApiDelivery.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1) EF Core
+// Escuchar en todas las interfaces para acceso desde Android físico
+builder.WebHost.UseUrls("https://localhost:7189", "http://0.0.0.0:5224");
+
+// -------------------------
+// Services
+// -------------------------
+
+// Enrutamiento: URLs en min�sculas
+builder.Services.AddRouting(o =>
+{
+    o.LowercaseUrls = true;
+    o.LowercaseQueryStrings = false;
+});
+
+// Email sender
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+
+// DbContext (usa "DefaultConnection" de appsettings.json)
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2) Controllers + JSON
+// Controllers + JSON (evitar ciclos y respetar casing por defecto)
 builder.Services.AddControllers()
-    .AddJsonOptions(x =>
+    .AddJsonOptions(o =>
     {
-        x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-        // x.JsonSerializerOptions.PropertyNamingPolicy = null; // opcional
+        o.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        o.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        // Si quer�s camelCase expl�cito:
+        // o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
 
-// 3) Swagger
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
+// ProblemDetails para respuestas de error consistentes
+builder.Services.AddProblemDetails();
+
+// CORS amplio (�til para MAUI Blazor Hybrid y pruebas)
+const string PublicCors = "Public";
+builder.Services.AddCors(options =>
 {
-    options.SwaggerDoc("v1", new OpenApiInfo
+    options.AddPolicy(PublicCors, policy =>
+    {
+        policy
+            .SetIsOriginAllowed(_ => true)   // si m�s adelante necesit�s restringir, cambi� a .WithOrigins(...)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
+builder.Services.AddSignalR();
+
+// Swagger SIEMPRE (produce /swagger y /swagger/v1/swagger.json)
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "WebApiDelivery",
         Version = "v1"
     });
 });
 
-// 4) CORS (�til cuando MAUI corre en otro host o dispositivo)
-builder.Services.AddCors(o => o.AddPolicy("AllowAll", p =>
-    p.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin()
-));
-
 var app = builder.Build();
 
-// 5) Crear carpeta wwwroot/imagenes si no existe (evita 404 por carpeta faltante)
-var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-var imagesDir = Path.Combine(webRoot, "imagenes");
-if (!Directory.Exists(imagesDir))
+// -------------------------
+// Middleware pipeline
+// -------------------------
+
+// Manejo global de excepciones con ProblemDetails
+app.UseExceptionHandler();
+
+// (Opcional) HSTS s�lo en prod
+if (!app.Environment.IsDevelopment())
+    app.UseHsts();
+
+// Solo redirigir a HTTPS en producción (en dev el Android no puede seguir el redirect)
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
+
+// CORS
+app.UseCors(PublicCors);
+
+// Archivos est�ticos (wwwroot) + mapeo de tipos extra (.webp/.heic)
+var provider = new FileExtensionContentTypeProvider();
+provider.Mappings[".webp"] = "image/webp";
+provider.Mappings[".heic"] = "image/heic";
+
+// Sirve todo lo que est� en wwwroot (incluye /imagenes/*)
+app.UseStaticFiles(new StaticFileOptions
 {
-    Directory.CreateDirectory(imagesDir);
-}
+    ContentTypeProvider = provider
+});
 
-// 6) Pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseHttpsRedirection();
-
-// ?? NECESARIO para servir /imagenes/archivo.jpg
-app.UseStaticFiles();
-
-app.UseRouting();
-
-// ?? Permite consumir la API desde el WebView/otro host
-app.UseCors("AllowAll");
-
+// (Si agreg�s auth m�s adelante)
+// app.UseAuthentication();
 app.UseAuthorization();
 
+// Swagger SIEMPRE
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "WebApiDelivery v1");
+    c.RoutePrefix = "swagger"; // UI en /swagger
+});
+
+// Ra�z -> redirige a Swagger (evita 403/404 en "/")
+app.MapGet("/", () => Results.Redirect("/swagger")).AllowAnonymous();
+
+// Endpoints de controllers
 app.MapControllers();
+app.MapHub<DeliveryHub>("/deliveryHub");
+
+// Health-check p�blico
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }))
+   .WithName("HealthCheck")
+   .WithTags("System")
+   .AllowAnonymous();
 
 app.Run();
