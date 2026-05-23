@@ -13,11 +13,13 @@ namespace WebApiDelivery.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IEmailSender _email;
+        private readonly ILogger<UsuariosController> _logger;
 
-        public UsuariosController(AppDbContext context, IEmailSender email)
+        public UsuariosController(AppDbContext context, IEmailSender email, ILogger<UsuariosController> logger)
         {
             _context = context;
             _email = email;
+            _logger = logger;
         }
 
         // ==========================
@@ -175,7 +177,8 @@ namespace WebApiDelivery.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message, inner = ex.InnerException?.Message, type = ex.GetType().Name });
+                _logger.LogError(ex, "Error al listar administradores");
+                return StatusCode(500, "Error al procesar la solicitud.");
             }
         }
 
@@ -283,8 +286,9 @@ namespace WebApiDelivery.Controllers
                     "Tu código de verificación - Delivery App",
                     $"<h2>Tu código es: <strong>{codigo}</strong></h2><p>Válido por 10 minutos.</p>");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error enviando email de pre-registro a {Email}", email);
                 return StatusCode(500, "No se pudo enviar el email. Verificá tu conexión e intentá de nuevo.");
             }
 
@@ -365,8 +369,9 @@ namespace WebApiDelivery.Controllers
                     $"<p>Válido por 10 minutos.</p>" +
                     $"<p>Si no solicitaste esto, ignorá este mensaje.</p>");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error enviando email de recuperación a {Email}", email);
                 return StatusCode(500, "No se pudo enviar el email. Verificá tu conexión e intentá de nuevo.");
             }
 

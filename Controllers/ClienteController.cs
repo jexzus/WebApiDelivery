@@ -14,12 +14,14 @@ namespace WebApiDelivery.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IHubContext<DeliveryHub> _hub;
+        private readonly ILogger<ClienteController> _logger;
         private static readonly ConcurrentDictionary<int, List<DetallePedido>> _carritos = new();
 
-        public ClienteController(AppDbContext context, IHubContext<DeliveryHub> hub)
+        public ClienteController(AppDbContext context, IHubContext<DeliveryHub> hub, ILogger<ClienteController> logger)
         {
             _context = context;
             _hub = hub;
+            _logger = logger;
         }
 
         // 1. GET: api/cliente/catalogo
@@ -139,7 +141,7 @@ namespace WebApiDelivery.Controllers
                     idCliente = pedido.IdCliente
                 });
             }
-            catch { /* SignalR no bloquea la respuesta */ }
+            catch (Exception ex) { _logger.LogWarning(ex, "SignalR error al notificar nuevo pedido {NumPedido}", pedido.NumPedido); }
 
             return Ok(new { message = "Pedido confirmado exitosamente." });
         }
@@ -180,13 +182,14 @@ namespace WebApiDelivery.Controllers
                         modoEntrega = pedido.ModoEntrega ?? ""
                     });
                 }
-                catch { /* SignalR no bloquea la respuesta */ }
+                catch (Exception ex) { _logger.LogWarning(ex, "SignalR error al notificar cancelación pedido {NumPedido}", pedido.NumPedido); }
 
                 return Ok(new { message = "Pedido cancelado." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error interno: {ex.Message}");
+                _logger.LogError(ex, "Error al cancelar pedido {NumPedido}", request.NumPedido);
+                return StatusCode(500, "Error al procesar la solicitud.");
             }
         }
 
