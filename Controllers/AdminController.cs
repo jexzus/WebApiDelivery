@@ -66,6 +66,11 @@ namespace WebApiDelivery.Controllers
                 if (!esDomicilio && pedido.ModoEntrega is not null && request.NuevoEstado == "En reparto")
                     return BadRequest("Un pedido de retiro en tienda no puede pasar a 'En reparto'.");
 
+                if (string.Equals(pedido.FormaPago, "mercadopago", StringComparison.OrdinalIgnoreCase)
+                    && pedido.EstadoPago != "aprobado"
+                    && request.NuevoEstado != "Cancelado")
+                    return BadRequest("El pago por MercadoPago aún no fue confirmado. No se puede avanzar el pedido.");
+
                 bool cancelarBusqueda = pedido.EstadoPedido == "EsperandoRepartidor"
                                      && request.NuevoEstado != "EsperandoRepartidor";
 

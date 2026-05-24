@@ -109,7 +109,9 @@ namespace WebApiDelivery.Controllers
                 EstadoPedido = "Pendiente",
                 Observaciones = request.Observaciones,
                 ModoEntrega = request.ModoEntrega,
-                MontoTotal = total
+                MontoTotal = total,
+                FormaPago = string.IsNullOrWhiteSpace(request.FormaPago) ? "efectivo" : request.FormaPago.Trim().ToLower(),
+                EstadoPago = "pendiente"
             };
 
             _context.Pedidos.Add(pedido);
@@ -143,7 +145,7 @@ namespace WebApiDelivery.Controllers
             }
             catch (Exception ex) { _logger.LogWarning(ex, "SignalR error al notificar nuevo pedido {NumPedido}", pedido.NumPedido); }
 
-            return Ok(new { message = "Pedido confirmado exitosamente." });
+            return Ok(new { message = "Pedido confirmado exitosamente.", numPedido = pedido.NumPedido });
         }
 
         // 6. POST: api/cliente/cancelar-pedido
@@ -231,6 +233,7 @@ namespace WebApiDelivery.Controllers
         public int IdUsuario { get; set; }
         public string Observaciones { get; set; } = string.Empty;
         public string? ModoEntrega { get; set; }
+        public string? FormaPago { get; set; }
     }
 
     public class CancelarPedidoClienteRequest

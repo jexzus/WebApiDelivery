@@ -26,6 +26,8 @@ namespace WebApiDelivery.Models
 
         public string EstadoPago { get; set; } = "pendiente";
 
+        public string? FormaPago { get; set; }
+
         public string? MpPaymentId { get; set; }
 
         public string? MpPreferenceId { get; set; }
