@@ -35,7 +35,7 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 // DbContext (usa "DefaultConnection" de appsettings.json)
 var connStr = builder.Configuration.GetConnectionString("DefaultConnection")!;
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
+    options.UseMySql(connStr, new MySqlServerVersion(new Version(8, 0, 36))));
 
 // Controllers + JSON (evitar ciclos y respetar casing por defecto)
 builder.Services.AddControllers()
