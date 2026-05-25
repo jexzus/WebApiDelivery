@@ -33,8 +33,9 @@ builder.Services.AddRouting(o =>
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 // DbContext (usa "DefaultConnection" de appsettings.json)
+var connStr = builder.Configuration.GetConnectionString("DefaultConnection")!;
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
 
 // Controllers + JSON (evitar ciclos y respetar casing por defecto)
 builder.Services.AddControllers()
@@ -77,6 +78,13 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+
+// Aplicar migraciones automáticamente al arrancar
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
 
 // -------------------------
 // Middleware pipeline

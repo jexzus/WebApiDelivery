@@ -120,9 +120,9 @@ namespace WebApiDelivery.Data
                 e.Property(p => p.Email).HasMaxLength(200).IsRequired();
                 e.Property(p => p.TokenHash).HasMaxLength(200).IsRequired();
                 e.Property(p => p.Tipo).HasMaxLength(20).HasDefaultValue("registro");
-                e.Property(p => p.Usado).HasColumnType("bit").ValueGeneratedNever();
-                e.Property(p => p.CreatedAt).HasColumnType("datetime2").HasDefaultValueSql("SYSUTCDATETIME()");
-                e.Property(p => p.ExpiresAt).HasColumnType("datetime2");
+                e.Property(p => p.Usado).HasColumnType("tinyint(1)").ValueGeneratedNever();
+                e.Property(p => p.CreatedAt).HasColumnType("datetime(6)").HasDefaultValueSql("UTC_TIMESTAMP(6)");
+                e.Property(p => p.ExpiresAt).HasColumnType("datetime(6)");
                 e.HasIndex(p => new { p.Email, p.Tipo, p.Usado });
             });
         }
