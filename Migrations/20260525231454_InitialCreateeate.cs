@@ -27,7 +27,7 @@ namespace WebApiDelivery.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     ExpiresAt = table.Column<DateTime>(type: "datetime(6)", nullable: false),
                     Usado = table.Column<bool>(type: "tinyint(1)", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false, defaultValueSql: "UTC_TIMESTAMP(6)"),
+                    CreatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP(6)"),
                     Tipo = table.Column<string>(type: "varchar(20)", maxLength: 20, nullable: false, defaultValue: "registro")
                         .Annotation("MySql:CharSet", "utf8mb4")
                 },
