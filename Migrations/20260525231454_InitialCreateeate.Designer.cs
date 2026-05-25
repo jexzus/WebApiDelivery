@@ -12,8 +12,8 @@ using WebApiDelivery.Data;
 namespace WebApiDelivery.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260525032721_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260525231454_InitialCreateeate")]
+    partial class InitialCreateeate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
