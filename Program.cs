@@ -8,8 +8,15 @@ using WebApiDelivery.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Escuchar en todas las interfaces para acceso desde Android físico
-builder.WebHost.UseUrls("https://localhost:7189", "http://0.0.0.0:5224");
+// Local: HTTPS para Windows + HTTP para Android físico
+// Railway: solo HTTP en el puerto que asigna la plataforma
+if (builder.Environment.IsDevelopment())
+    builder.WebHost.UseUrls("https://localhost:7189", "http://0.0.0.0:5224");
+else
+{
+    var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
 
 // -------------------------
 // Services
